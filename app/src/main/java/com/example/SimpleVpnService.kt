@@ -22,6 +22,12 @@ class SimpleVpnService : VpnService() {
     private var configAddress: String = ""
     private var configPort: Int = 0
     private var configUuid: String = ""
+    private var configType: String = "VMess"
+    private var configTls: Boolean = false
+    private var configSni: String? = null
+    private var configAlpn: String? = null
+    private var configNetwork: String? = null
+
 
     companion object {
         const val ACTION_CONNECT = "com.example.vpn.CONNECT"
@@ -102,8 +108,14 @@ class SimpleVpnService : VpnService() {
             configAddress = config.address
             configPort = config.port
             configUuid = config.uuid ?: "00000000-0000-0000-0000-000000000000"
-            
+            configType = config.type
+            configTls = config.tls
+            configSni = config.sni
+            configAlpn = config.alpn
+            configNetwork = config.network
+
             startV2RayCore()
+
         } catch (e: Exception) {
             Log.e(TAG, "Error starting VPN", e)
             stopVpn()
@@ -111,11 +123,14 @@ class SimpleVpnService : VpnService() {
     }
 
     private fun extractConfigFromIntent(intent: Intent): V2RayConfig {
+        val raw = intent.getStringExtra(EXTRA_CONFIG) ?: ""
+        val type = intent.getStringExtra(EXTRA_CONFIG_TYPE) ?: "VMess"
+
         return V2RayConfig(
-            id = intent.getStringExtra(EXTRA_CONFIG) ?: "",
-            name = intent.getStringExtra(EXTRA_CONFIG_TYPE) ?: "VMess",
-            type = intent.getStringExtra(EXTRA_CONFIG_TYPE) ?: "VMess",
-            rawConfig = intent.getStringExtra(EXTRA_CONFIG) ?: "",
+            id = raw,
+            name = type,
+            type = type,
+            rawConfig = raw,
             address = intent.getStringExtra(EXTRA_CONFIG_ADDRESS) ?: "",
             port = intent.getIntExtra(EXTRA_CONFIG_PORT, 443),
             uuid = intent.getStringExtra(EXTRA_CONFIG_UUID),
@@ -128,42 +143,138 @@ class SimpleVpnService : VpnService() {
         )
     }
 
+
     private fun startV2RayCore() {
         try {
             val configJson = buildV2RayConfigJson()
             val configFile = java.io.File(filesDir, "v2ray_config.json")
             configFile.writeText(configJson)
-            
+
             Log.d(TAG, "Starting V2Ray core with config: ${configFile.absolutePath}")
             Log.d(TAG, "Config JSON: $configJson")
-            
+
             val callbackHandler = object : CoreCallbackHandler {
                 override fun onEmitStatus(code: Long, msg: String): Long {
                     Log.d(TAG, "V2Ray status: $msg (code: $code)")
                     return 0L
                 }
+
                 override fun shutdown(): Long {
                     Log.d(TAG, "V2Ray shutting down")
                     return 0L
                 }
+
                 override fun startup(): Long {
                     Log.d(TAG, "V2Ray starting up")
                     return 0L
                 }
             }
-            
+
             coreController = Libv2ray.newCoreController(callbackHandler)
             val pfd = vpnInterface ?: throw IllegalStateException("VPN interface is null")
             val fd = pfd.detachFd()
             Log.d(TAG, "Starting V2Ray core with FD: $fd")
+
             coreController?.startLoop(configFile.absolutePath, fd)
+
             Log.d(TAG, "V2Ray core started successfully")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error starting V2Ray core", e)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Fatal error starting V2Ray core. Will rollback VPN.", t)
+            // rollback: close VPN interface + stop foreground to avoid crash loops
+            try {
+                coreController?.stopLoop()
+            } catch (_: Throwable) {
+            }
+            try {
+                vpnInterface?.close()
+            } catch (_: Throwable) {
+            }
+            coreController = null
+            vpnInterface = null
+            try {
+                stopForeground(true)
+            } catch (_: Throwable) {
+            }
         }
     }
 
+
     private fun buildV2RayConfigJson(): String {
+        val protocol = when (configType) {
+            "VLess" -> "vless"
+            "Trojan" -> "trojan"
+            else -> "vmess"
+        }
+
+        val tlsBlock = if (configTls) {
+            val serverName = configSni?.takeIf { it.isNotBlank() } ?: configAddress
+            // ALPN optional
+            val alpnArr = configAlpn?.split(",")
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+
+            if (alpnArr.isNullOrEmpty()) {
+                """"security": "tls",
+      "tlsSettings": {"serverName": ${jsonString(serverName)}}"""
+            } else {
+                val alpnJson = alpnArr.joinToString(prefix = "[", postfix = "]") { jsonString(it) }
+                """"security": "tls",
+      "tlsSettings": {"serverName": ${jsonString(serverName)}, "alpn": $alpnJson}"""
+            }
+        } else {
+            """"security": "none""""
+        }
+
+
+        // NOTE: libv2ray core controller API varies by builds; we keep config minimal but valid.
+        val outboundUsersBlock = when (protocol) {
+            "vmess" -> {
+                // vmess typically uses uuid as id
+                """"vnext": [{
+      "address": ${jsonString(configAddress)},
+      "port": $configPort,
+      "users": [{
+        "id": ${jsonString(configUuid)},
+        "encryption": "auto"
+      }]
+    }]"""
+            }
+            "vless" -> {
+                val uuid = configUuid
+                // vless settings format is different; we keep common shape
+                """"vnext": [{
+      "address": ${jsonString(configAddress)},
+      "port": $configPort,
+      "users": [{
+        "id": ${jsonString(uuid)},
+        "flow": "" 
+      }]
+    }]"""
+            }
+            "trojan" -> {
+                // trojan uses password/secret; we mapped uuid as uuid variable (may actually be pass)
+                val pwd = configUuid
+                """"servers": [{
+      "address": ${jsonString(configAddress)},
+      "port": $configPort,
+      "password": ${jsonString(pwd)},
+      "level": 0
+    }]"""
+            }
+            else -> {
+                """"vnext": []"""
+            }
+        }
+
+        val streamNetwork = (configNetwork ?: "tcp")
+        val streamSettingsBlock = when (protocol) {
+            "vmess", "vless", "trojan" -> {
+                """"network": ${jsonString(streamNetwork)},
+    $tlsBlock"""
+            }
+            else -> """"network": "tcp", "security": "none""""
+        }
+
         return """{
   "log": {"loglevel": "info"},
   "inbounds": [{
@@ -172,16 +283,23 @@ class SimpleVpnService : VpnService() {
     "settings": {"auth": "noauth", "listen": "127.0.0.1"}
   }],
   "outbounds": [{
-    "protocol": "vmess",
-    "settings": {"vnext": [{"address": "$configAddress", "port": $configPort, "users": [{"id": "$configUuid", "encryption": "auto"}]}]},
+    "protocol": ${jsonString(protocol)},
+    "settings": { $outboundUsersBlock },
     "streamSettings": {
-      "network": "tcp",
-      "security": "none"
+      $streamSettingsBlock
     }
   }],
-  "routing": {"mode": "rules"}
+  "routing": {"mode": "field"}
 }"""
     }
+
+    private fun jsonString(v: String): String {
+        val escaped = v
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+        return "\"$escaped\""
+    }
+
 
     private fun createNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
