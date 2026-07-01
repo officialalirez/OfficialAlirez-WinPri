@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Build
 import android.os.IBinder
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import libv2ray.Libv2ray
@@ -159,7 +160,7 @@ class SimpleVpnService : VpnService() {
             }
             
             coreController = Libv2ray.newCoreController(callbackHandler)
-            val fd = vpnInterface?.fd ?: throw IllegalStateException("VPN interface is null")
+            val fd = vpnInterface?.fileDescriptor?.detachFd() ?: throw IllegalStateException("VPN interface is null")
             Log.d(TAG, "Starting V2Ray core with FD: $fd")
             coreController?.startLoop(configFile.absolutePath, fd)
             Log.d(TAG, "V2Ray core started successfully")
