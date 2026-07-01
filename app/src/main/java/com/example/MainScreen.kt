@@ -67,7 +67,8 @@ fun MainScreen(viewModel: MainViewModel) {
     val configs by viewModel.configs.collectAsState()
     val selectedConfig by viewModel.selectedConfig.collectAsState()
     val isAutoSelect by viewModel.isAutoSelect.collectAsState()
-    val vpnConnected by viewModel.vpnConnected.collectAsState()
+    val connectionState by viewModel.connectionState.collectAsState()
+    val vpnConnected = connectionState == VpnState.CONNECTED
 
     // Telegram Proxy States
     val telegramProxies by viewModel.telegramProxies.collectAsState()
@@ -86,7 +87,10 @@ fun MainScreen(viewModel: MainViewModel) {
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            viewModel.toggleVpn(context)
+            val config = viewModel.selectedConfig.value
+            if (config != null) {
+                viewModel.connectVpn(context, config)
+            }
         }
     }
 
@@ -461,12 +465,18 @@ fun MainScreen(viewModel: MainViewModel) {
                                                 scope.launch {
                                                     viewModel.setError("لطفاً ابتدا وارد حساب خود (رایگان یا اشتراک) شوید.")
                                                 }
+                                            } else if (vpnConnected) {
+                                                viewModel.disconnectVpn(context)
+                                                viewModel.updateConnectionState(VpnState.DISCONNECTED)
                                             } else {
                                                 val intent = VpnService.prepare(context)
                                                 if (intent != null) {
                                                     vpnLauncher.launch(intent)
                                                 } else {
-                                                    viewModel.toggleVpn(context)
+                                                    val config = viewModel.selectedConfig.value
+                                                    if (config != null) {
+                                                        viewModel.connectVpn(context, config)
+                                                    }
                                                 }
                                             }
                                         },
@@ -1689,3 +1699,14 @@ data class AppPackageInfo(
     val appName: String,
     val icon: android.graphics.drawable.Drawable? = null
 )
+
+fun checkVpnRunning(context: Context): Boolean {
+    val pm = context.packageManager
+    val packages = pm.getInstalledPackages(0)
+    val vpnPackages = packages.filter { 
+        it.packageName == "com.example" || 
+        it.packageName.contains("vpn", ignoreCase = true) ||
+        it.packageName.contains("v2ray", ignoreCase = true)
+    }
+    return vpnPackages.isNotEmpty()
+}

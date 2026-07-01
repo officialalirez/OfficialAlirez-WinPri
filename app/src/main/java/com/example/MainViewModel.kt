@@ -399,11 +399,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Toggle VPN Connection
     fun toggleVpn(context: Context) {
         val isConnected = _vpnConnected.value
         if (isConnected) {
             disconnectVpn(context)
+            _vpnConnected.value = false
         } else {
             val config = _selectedConfig.value
             if (config != null) {
@@ -414,8 +414,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun connectVpn(context: Context, config: V2RayConfig) {
-        _vpnConnected.value = true
+    fun connectVpn(context: Context, config: V2RayConfig) {
         val intent = Intent(context, SimpleVpnService::class.java).apply {
             action = SimpleVpnService.ACTION_CONNECT
             putExtra(SimpleVpnService.EXTRA_CONFIG, config.rawConfig)
@@ -429,15 +428,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             putExtra(SimpleVpnService.EXTRA_CONFIG_ALPN, config.alpn)
             putExtra(SimpleVpnService.EXTRA_CONFIG_TLS, config.tls)
         }
-        context.startService(intent)
+        context.startForegroundService(intent)
     }
 
     fun disconnectVpn(context: Context) {
-        _vpnConnected.value = false
         val intent = Intent(context, SimpleVpnService::class.java).apply {
             action = SimpleVpnService.ACTION_DISCONNECT
         }
-        context.startService(intent)
+        context.startForegroundService(intent)
     }
 
     // App Tunneling / Split Tunneling logic
@@ -592,6 +590,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var lastRefreshTime = 0L
 
+    private val _connectionState = MutableStateFlow(VpnState.DISCONNECTED)
+    val connectionState: StateFlow<VpnState> = _connectionState.asStateFlow()
+
     fun refreshOnAppOpen() {
         val currentTime = System.currentTimeMillis()
         if (currentTime - lastRefreshTime > 3000) {
@@ -605,6 +606,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    companion object {
+        const val ACTION_VPN_STATE_CHANGED = "com.example.vpn.STATE_CHANGED"
+        const val EXTRA_STATE = "state"
+    }
+
+    fun updateConnectionState(state: VpnState) {
+        _connectionState.value = state
+        _vpnConnected.value = (state == VpnState.CONNECTED)
+    }
+}
+
+enum class VpnState {
+    DISCONNECTED,
+    CONNECTING,
+    CONNECTED,
+    DISCONNECTING
 }
 
 data class TelegramProxy(
