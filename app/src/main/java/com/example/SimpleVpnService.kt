@@ -4,6 +4,9 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import libv2ray.Libv2ray
+import libv2ray.CoreController
+import libv2ray.CoreCallbackHandler
 import com.example.data.V2RayConfig
 
 class SimpleVpnService : VpnService() {
@@ -12,6 +15,7 @@ class SimpleVpnService : VpnService() {
     private val TAG = "SimpleVpnService"
     
     private var v2rayConfig: V2RayConfig? = null
+    private var coreController: CoreController? = null
     private var isRunning = false
 
     companion object {
@@ -31,6 +35,10 @@ class SimpleVpnService : VpnService() {
         private const val VPN_MTU = 1500
         private const val VPN_ADDRESS = "172.19.0.1"
         private const val VPN_ROUTE = "0.0.0.0"
+    }
+
+    init {
+        Libv2ray.touch()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -60,6 +68,7 @@ class SimpleVpnService : VpnService() {
                 .setMtu(VPN_MTU)
                 .addAddress(VPN_ADDRESS, 255)
                 .addRoute(VPN_ROUTE, 0)
+                .addRoute("::", 0)
                 .addDnsServer("1.1.1.1")
                 .addDnsServer("8.8.8.8")
 
@@ -100,7 +109,26 @@ class SimpleVpnService : VpnService() {
             val configFile = java.io.File(filesDir, "v2ray_config.json")
             configFile.writeText(configJson)
             
-            Log.d(TAG, "V2Ray core started with config: ${configFile.absolutePath}")
+            Log.d(TAG, "Starting V2Ray core with config: ${configFile.absolutePath}")
+            
+            val callbackHandler = object : CoreCallbackHandler {
+                override fun onEmitStatus(code: Long, msg: String): Long {
+                    Log.d(TAG, "V2Ray status: $msg")
+                    return 0L
+                }
+                override fun shutdown(): Long {
+                    Log.d(TAG, "V2Ray shutting down")
+                    return 0L
+                }
+                override fun startup(): Long {
+                    Log.d(TAG, "V2Ray starting up")
+                    return 0L
+                }
+            }
+            
+            coreController = Libv2ray.newCoreController(callbackHandler)
+            coreController?.startLoop(configFile.absolutePath, vpnInterface!!.fd)
+            Log.d(TAG, "V2Ray core started successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Error starting V2Ray core", e)
         }
@@ -135,9 +163,11 @@ class SimpleVpnService : VpnService() {
 
     private fun stopVpn() {
         try {
+            coreController?.stopLoop()
             vpnInterface?.close()
             vpnInterface = null
             v2rayConfig = null
+            coreController = null
             isRunning = false
             Log.d(TAG, "VPN stopped")
         } catch (e: Exception) {
