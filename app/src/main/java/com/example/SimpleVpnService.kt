@@ -57,7 +57,7 @@ class SimpleVpnService : VpnService() {
 
             val builder = Builder()
                 .setSession("Win2ray Shield")
-                .setMtu(VPN_MTU)
+                .setMTU(VPN_MTU)
                 .addAddress(VPN_ADDRESS, 255)
                 .addRoute(VPN_ROUTE, 0)
                 .addDnsServer("1.1.1.1")
