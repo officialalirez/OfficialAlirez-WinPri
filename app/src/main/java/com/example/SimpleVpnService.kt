@@ -47,10 +47,7 @@ class SimpleVpnService : VpnService() {
     override fun onCreate() {
         super.onCreate()
         Libv2ray.touch()
-        setupNotificationChannel()
-    }
-
-    private fun setupNotificationChannel() {
+        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
@@ -71,6 +68,7 @@ class SimpleVpnService : VpnService() {
             }
             ACTION_DISCONNECT -> {
                 stopVpn()
+                stopSelf()
             }
         }
         return START_NOT_STICKY
@@ -80,11 +78,8 @@ class SimpleVpnService : VpnService() {
 
     private fun startVpn(config: V2RayConfig) {
         Log.d(TAG, "Starting VPN with config: ${config.address}:${config.port}")
-        stopVpn()
 
         try {
-            setupNotificationChannel()
-            
             vpnInterface = Builder()
                 .setSession("Win2ray Shield")
                 .setMtu(VPN_MTU)
@@ -99,7 +94,6 @@ class SimpleVpnService : VpnService() {
 
             if (vpnInterface == null) {
                 Log.e(TAG, "Failed to establish VPN interface")
-                stopSelf()
                 return
             }
 
@@ -113,7 +107,6 @@ class SimpleVpnService : VpnService() {
         } catch (e: Exception) {
             Log.e(TAG, "Error starting VPN", e)
             stopVpn()
-            stopSelf()
         }
     }
 
@@ -160,7 +153,8 @@ class SimpleVpnService : VpnService() {
             }
             
             coreController = Libv2ray.newCoreController(callbackHandler)
-            val fd = vpnInterface?.detachFd() ?: throw IllegalStateException("VPN interface is null")
+            val pfd = vpnInterface ?: throw IllegalStateException("VPN interface is null")
+            val fd = pfd.detachFd()
             Log.d(TAG, "Starting V2Ray core with FD: $fd")
             coreController?.startLoop(configFile.absolutePath, fd)
             Log.d(TAG, "V2Ray core started successfully")
@@ -206,7 +200,6 @@ class SimpleVpnService : VpnService() {
             vpnInterface = null
             coreController = null
             stopForeground(true)
-            stopSelf()
             Log.d(TAG, "VPN stopped")
         } catch (e: Exception) {
             Log.e(TAG, "Error closing VPN", e)

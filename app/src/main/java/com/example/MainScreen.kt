@@ -467,7 +467,6 @@ fun MainScreen(viewModel: MainViewModel) {
                                                 }
                                             } else if (vpnConnected) {
                                                 viewModel.disconnectVpn(context)
-                                                viewModel.updateConnectionState(VpnState.DISCONNECTED)
                                             } else {
                                                 val intent = VpnService.prepare(context)
                                                 if (intent != null) {
