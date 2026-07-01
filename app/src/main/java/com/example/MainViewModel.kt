@@ -263,6 +263,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 var name = "سرور #${index + 1} ($type)"
                 var address = ""
                 var port = 443
+                var uuid: String? = null
+                var security: String? = null
+                var network: String? = null
+                var sni: String? = null
+                var alpn: String? = null
+                var tls = false
 
                 if (type == "VMess") {
                     try {
@@ -272,6 +278,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val portStr = regexSearch(json, "\"port\"\\s*:\\s*(\\d+)") ?: "443"
                         port = portStr.toIntOrNull() ?: 443
                         name = regexSearch(json, "\"ps\"\\s*:\\s*\"([^\"]+)\"") ?: name
+                        uuid = regexSearch(json, "\"id\"\\s*:\\s*\"([^\"]+)\"") ?: ""
+                        security = regexSearch(json, "\"sc\"\\s*:\\s*\"([^\"]+)\"")
+                        network = regexSearch(json, "\"net\"\\s*:\\s*\"([^\"]+)\"")
+                        sni = regexSearch(json, "\"sni\"\\s*:\\s*\"([^\"]+)\"")
+                        alpn = regexSearch(json, "\"alpn\"\\s*:\\s*\"([^\"]+)\"")
+                        tls = regexSearch(json, "\"tls\"\\s*:\\s*\"([^\"]+)\"")?.toBoolean() ?: false
                     } catch (e: Exception) {
                         Log.e("MainViewModel", "VMess parsing error", e)
                     }
@@ -292,6 +304,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     address = hostPort.substringBefore(":")
                     port = hostPort.substringAfter(":", "443").toIntOrNull() ?: 443
+                    
+                    // Parse VLESS and Trojan for additional fields
+                    if (type == "VLess" || type == "Trojan") {
+                        uuid = regexSearch(cleanLine, "spdx=[^&]*")?.substringAfter("spdx=").substringBefore("&")
+                        if (uuid == null) {
+                            uuid = regexSearch(cleanLine.substringAfter("://").substringBefore("@"), "([^@]+)")
+                        }
+                        tls = regexSearch(cleanLine, "tls=(true|false)".toRegex())?.let { it.toBoolean() } ?: false
+                        sni = regexSearch(cleanLine, "sni=([^&]+)")
+                        network = regexSearch(cleanLine, "network=([^&]+)")
+                    }
                 }
 
                 if (address.isNotEmpty()) {
@@ -303,7 +326,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             rawConfig = line,
                             address = address,
                             port = port,
-                            isPremium = isPremium
+                            isPremium = isPremium,
+                            uuid = uuid,
+                            security = security,
+                            network = network,
+                            sni = sni,
+                            alpn = alpn,
+                            tls = tls
                         )
                     )
                 }
@@ -371,14 +400,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (isConnected) {
             disconnectVpn(context)
         } else {
-            connectVpn(context)
+            val config = _selectedConfig.value
+            if (config != null) {
+                connectVpn(context, config)
+            } else {
+                _uiState.value = UiState.Error("لطفاً یک سرور انتخاب کنید.")
+            }
         }
     }
 
-    private fun connectVpn(context: Context) {
+    private fun connectVpn(context: Context, config: V2RayConfig) {
         _vpnConnected.value = true
         val intent = Intent(context, SimpleVpnService::class.java).apply {
             action = SimpleVpnService.ACTION_CONNECT
+            putExtra(SimpleVpnService.EXTRA_CONFIG, config.rawConfig)
+            putExtra(SimpleVpnService.EXTRA_CONFIG_TYPE, config.type)
+            putExtra(SimpleVpnService.EXTRA_CONFIG_ADDRESS, config.address)
+            putExtra(SimpleVpnService.EXTRA_CONFIG_PORT, config.port)
+            putExtra(SimpleVpnService.EXTRA_CONFIG_UUID, config.uuid)
+            putExtra(SimpleVpnService.EXTRA_CONFIG_SECURITY, config.security)
+            putExtra(SimpleVpnService.EXTRA_CONFIG_NETWORK, config.network)
+            putExtra(SimpleVpnService.EXTRA_CONFIG_SNI, config.sni)
+            putExtra(SimpleVpnService.EXTRA_CONFIG_ALPN, config.alpn)
+            putExtra(SimpleVpnService.EXTRA_CONFIG_TLS, config.tls)
         }
         context.startService(intent)
     }
