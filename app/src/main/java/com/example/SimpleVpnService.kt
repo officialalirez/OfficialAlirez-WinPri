@@ -111,6 +111,7 @@ class SimpleVpnService : VpnService() {
     private fun extractConfigFromIntent(intent: Intent): V2RayConfig {
         return V2RayConfig(
             id = intent.getStringExtra(EXTRA_CONFIG) ?: "",
+            name = intent.getStringExtra(EXTRA_CONFIG_TYPE) ?: "VMess",
             type = intent.getStringExtra(EXTRA_CONFIG_TYPE) ?: "VMess",
             rawConfig = intent.getStringExtra(EXTRA_CONFIG) ?: "",
             address = intent.getStringExtra(EXTRA_CONFIG_ADDRESS) ?: "",

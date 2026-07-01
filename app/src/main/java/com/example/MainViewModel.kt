@@ -307,11 +307,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     
                     // Parse VLESS and Trojan for additional fields
                     if (type == "VLess" || type == "Trojan") {
-                        uuid = regexSearch(cleanLine, "spdx=[^&]*")?.substringAfter("spdx=").substringBefore("&")
+                        val spdxMatch = regexSearch(cleanLine, "spdx=([^&]*)")
+                        uuid = if (spdxMatch != null && spdxMatch.contains("&")) {
+                            spdxMatch.substringAfter("spdx=").substringBefore("&")
+                        } else {
+                            spdxMatch?.substringAfter("spdx=") ?: null
+                        }
                         if (uuid == null) {
                             uuid = regexSearch(cleanLine.substringAfter("://").substringBefore("@"), "([^@]+)")
                         }
-                        tls = regexSearch(cleanLine, "tls=(true|false)".toRegex())?.let { it.toBoolean() } ?: false
+                        tls = regexSearch(cleanLine, "tls=(true|false)")?.let { it.toBoolean() } ?: false
                         sni = regexSearch(cleanLine, "sni=([^&]+)")
                         network = regexSearch(cleanLine, "network=([^&]+)")
                     }
