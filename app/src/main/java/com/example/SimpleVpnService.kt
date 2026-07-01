@@ -160,9 +160,9 @@ class SimpleVpnService : VpnService() {
             }
             
             coreController = Libv2ray.newCoreController(callbackHandler)
-            val fd = vpnInterface?.fileDescriptor ?: throw IllegalStateException("VPN interface is null")
-            Log.d(TAG, "Starting V2Ray core with FD: $fd")
-            coreController?.startLoop(configFile.absolutePath, fd.int)
+            val pfd = vpnInterface ?: throw IllegalStateException("VPN interface is null")
+            Log.d(TAG, "Starting V2Ray core with FD: $pfd")
+            coreController?.startLoop(configFile.absolutePath, pfd)
             Log.d(TAG, "V2Ray core started successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Error starting V2Ray core", e)
